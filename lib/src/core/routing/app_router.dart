@@ -1,4 +1,3 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:poptart_lex/com/atproto/repo/strong_ref.dart';
 import 'package:auto_route/auto_route.dart';
 import 'package:collection/collection.dart';
@@ -25,13 +24,61 @@ class AuthGuard extends AutoRouteGuard {
   );
 
   @override
-  Future<void> onNavigation(NavigationResolver resolver, StackRouter router) async {
-    if (FirebaseAuth.instance.currentUser != null) {
+  Future<void> onNavigation(
+    NavigationResolver resolver,
+    StackRouter router,
+  ) async {
+    final authRepository = GetIt.instance<AuthRepository>();
+    final onboardingRepository = GetIt.instance<OnboardingRepository>();
+
+    try {
+      await authRepository.initializationComplete;
+      final savedHandle = authRepository.lastKnownHandle?.trim();
+      final hadSavedSession = savedHandle != null && savedHandle.isNotEmpty;
+      final isSessionValid = await authRepository.validateSession();
+
+      if (!isSessionValid) {
+        _logger.i(
+          hadSavedSession
+              ? 'Redirecting to auth recovery because the saved session could not be verified'
+              : 'Redirecting to register because the user is not signed in',
+        );
+        resolver.redirectUntil(
+          hadSavedSession
+              ? AuthRecoveryRoute(handle: savedHandle)
+              : const RegisterRoute(),
+        );
+        return;
+      }
+
+      final hasSpark = await onboardingRepository.hasSparkProfile();
+
+      if (!hasSpark) {
+        _logger.i(
+          'Redirecting authenticated user to onboarding because '
+          'their Spark profile is missing',
+        );
+        resolver.redirectUntil(const OnboardingRoute());
+        return;
+      }
+
       resolver.next();
-    } else {
+    } catch (e, stackTrace) {
+      _logger.e(
+        'Auth guard failed while resolving navigation',
+        error: e,
+        stackTrace: stackTrace,
+      );
+
+      if (authRepository.isAuthenticated) {
+        resolver.next();
+        return;
+      }
+
       resolver.redirectUntil(const RegisterRoute());
     }
-  }}
+  }
+}
 
 /// Router configuration for the application
 ///
