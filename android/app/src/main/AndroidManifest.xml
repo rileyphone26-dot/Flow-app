@@ -26,7 +26,7 @@
         tools:node="remove"
     />
     <application
-        android:label="Spark"
+        android:label="Flow"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"

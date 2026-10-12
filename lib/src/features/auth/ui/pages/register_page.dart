@@ -1,226 +1,32 @@
 import 'package:auto_route/auto_route.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter_svg/flutter_svg.dart';
-import 'package:spark/src/core/design_system/components/atoms/buttons/app_button.dart';
-import 'package:spark/src/core/design_system/tokens/typography.dart';
-import 'package:spark/src/core/l10n/app_localizations.dart';
 import 'package:spark/src/core/routing/app_router.dart';
-import 'package:spark/src/features/auth/providers/auth_providers.dart';
-import 'package:spark/src/features/auth/providers/onboarding_providers.dart';
-import 'package:spark/src/features/auth/providers/oauth_browser_launcher.dart';
-import 'package:spark/src/features/settings/providers/settings_provider.dart';
-
-/// Registration page that uses OAuth to create an account
 @RoutePage()
-class RegisterPage extends ConsumerStatefulWidget {
-  const RegisterPage({super.key});
-
-  static const getStartedButtonKey = ValueKey<String>('register.getStarted');
-  static const haveAccountButtonKey = ValueKey<String>('register.haveAccount');
-
-  @override
-  ConsumerState<RegisterPage> createState() => _RegisterPageState();
+class RegisterPage extends StatefulWidget {
+ const RegisterPage({super.key});
+ static const getStartedButtonKey=ValueKey<String>('register.getStarted');
+ static const haveAccountButtonKey=ValueKey<String>('register.haveAccount');
+ @override State<RegisterPage> createState()=>_RegisterPageState();
 }
-
-class _RegisterPageState extends ConsumerState<RegisterPage> {
-  bool _hasReceivedCallback = false;
-  bool _isCompletingOAuth = false;
-
-  Future<void> _initiateOAuth() async {
-    final authNotifier = ref.read(authProvider.notifier);
-
-    try {
-      // Start the AIP OAuth flow without a login hint for account creation.
-      final authUrl = await authNotifier.initiateOAuthWithoutLoginHint();
-
-      if (!mounted) return;
-
-      // Open the browser for OAuth authentication
-      String callbackUrl;
-      try {
-        callbackUrl = await ref
-            .read(oauthBrowserLauncherProvider)
-            .authenticate(url: authUrl, callbackUrlScheme: 'sprk');
-      } on PlatformException catch (e) {
-        if (e.code == 'CANCELED') {
-          // User cancelled the OAuth flow - reset loading state
-          if (!mounted) return;
-          setState(() {
-            _hasReceivedCallback = false;
-            _isCompletingOAuth = false;
-          });
-          authNotifier.resetOAuthState();
-          return;
-        }
-        // Re-throw other platform exceptions to be handled below
-        rethrow;
-      }
-
-      if (!mounted) return;
-
-      // Mark that we've received the callback - now we're completing OAuth
-      setState(() {
-        _hasReceivedCallback = true;
-        _isCompletingOAuth = true;
-      });
-
-      // Complete the OAuth flow with the callback URL
-      final completeResult = await authNotifier.completeOAuth(callbackUrl);
-
-      if (!mounted) return;
-
-      if (completeResult.isSuccess) {
-        final hasSparkProfile = await ref
-            .read(onboardingRepositoryProvider)
-            .hasSparkProfile();
-
-        if (!mounted) return;
-
-        if (hasSparkProfile) {
-          // Sync preferences from server before navigating to feed
-          await ref.read(settingsProvider.notifier).syncPreferencesFromServer();
-
-          if (!mounted) return;
-
-          context.router.replaceAll([const MainRoute()]);
-        } else {
-          context.router.replaceAll([const OnboardingRoute()]);
-        }
-      } else {
-        // OAuth completion failed - reset callback state
-        if (!mounted) return;
-        setState(() {
-          _hasReceivedCallback = false;
-          _isCompletingOAuth = false;
-        });
-      }
-    } catch (e) {
-      // Reset loading state for any errors
-      if (!mounted) return;
-      setState(() {
-        _hasReceivedCallback = false;
-        _isCompletingOAuth = false;
-      });
-      final errorMessage = e is PlatformException
-          ? 'Sign up failed: ${e.message ?? e.code}'
-          : 'Sign up failed: $e';
-      authNotifier.resetOAuthState(error: errorMessage);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context);
-    final isLoading = ref.watch(
-      authProvider.select((state) => state.isLoading),
-    );
-    final error = ref.watch(authProvider.select((state) => state.error));
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final isDarkMode = theme.brightness == Brightness.dark;
-
-    return Scaffold(
-      backgroundColor: colorScheme.surface,
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            children: [
-              // Main content - centered
-              Expanded(
-                child: Center(
-                  child: _isCompletingOAuth
-                      ? Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const CircularProgressIndicator(),
-                            const SizedBox(height: 16),
-                            Text(
-                              l10n.messageCompletingSignUp,
-                              style: AppTypography.textMediumMedium.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ],
-                        )
-                      : Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            // Spark logo
-                            SvgPicture.asset(
-                              'images/sprk.svg',
-                              height: 100,
-                              width: 100,
-                              package: 'assets',
-                              colorFilter: isDarkMode
-                                  ? null
-                                  : const ColorFilter.mode(
-                                      Colors.black,
-                                      BlendMode.srcIn,
-                                    ),
-                            ),
-                            const SizedBox(height: 32),
-                            // Welcome text
-                            Text(
-                              l10n.messageWelcome,
-                              style: AppTypography.displaySmallBold.copyWith(
-                                color: colorScheme.onSurface,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              l10n.messageWelcomeDescription,
-                              style: AppTypography.textMediumMedium.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                                height: 1.5,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                            if (error != null) ...[
-                              const SizedBox(height: 24),
-                              Text(
-                                error,
-                                style: AppTypography.textSmallMedium.copyWith(
-                                  color: colorScheme.error,
-                                ),
-                                textAlign: TextAlign.center,
-                              ),
-                            ],
-                          ],
-                        ),
-                ),
-              ),
-              // Buttons at the bottom
-              if (!_hasReceivedCallback) ...[
-                Opacity(
-                  opacity: isLoading ? 0.5 : 1.0,
-                  child: AppButton(
-                    key: RegisterPage.getStartedButtonKey,
-                    label: l10n.buttonGetStarted,
-                    onPressed: isLoading ? null : _initiateOAuth,
-                    size: AppButtonSize.medium,
-                    fullWidth: true,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                AppButton(
-                  key: RegisterPage.haveAccountButtonKey,
-                  label: l10n.buttonHaveAccount,
-                  variant: AppButtonVariant.neutral,
-                  onPressed: () => context.router.push(const LoginRoute()),
-                  size: AppButtonSize.medium,
-                  fullWidth: true,
-                ),
-                const SizedBox(height: 16),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+class _RegisterPageState extends State<RegisterPage>{
+ final email=TextEditingController(),password=TextEditingController();
+ bool busy=false;String? error;
+ @override void dispose(){email.dispose();password.dispose();super.dispose();}
+ Future<void> submit() async{
+  if(kIsWeb){setState(()=>error='Firebase Web app configuration is required before web sign-up can work.');return;}
+  setState(()=>{busy=true,error=null});
+  try{await FirebaseAuth.instance.createUserWithEmailAndPassword(email:email.text.trim(),password:password.text);if(mounted)context.router.replaceAll([const MainRoute()]);}
+  on FirebaseAuthException catch(e){if(mounted)setState(()=>error=e.message??'Account creation failed.');}
+  catch(_){if(mounted)setState(()=>error='Account creation failed. Please try again.');}
+  finally{if(mounted)setState(()=>busy=false);}
+ }
+ @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('Create your Flow account')),body:SafeArea(child:Center(child:SingleChildScrollView(padding:const EdgeInsets.all(24),child:ConstrainedBox(constraints:const BoxConstraints(maxWidth:420),child:Column(crossAxisAlignment:CrossAxisAlignment.stretch,children:[
+ TextField(controller:email,keyboardType:TextInputType.emailAddress,decoration:const InputDecoration(labelText:'Email',border:OutlineInputBorder())),
+ const SizedBox(height:16),TextField(controller:password,obscureText:true,decoration:const InputDecoration(labelText:'Password (minimum 6 characters)',border:OutlineInputBorder())),
+ if(error!=null)Padding(padding:const EdgeInsets.only(top:12),child:Text(error!,style:TextStyle(color:Theme.of(context).colorScheme.error))),
+ const SizedBox(height:20),FilledButton(key:RegisterPage.getStartedButtonKey,onPressed:busy?null:submit,child:busy?const CircularProgressIndicator():const Text('Create account')),
+ TextButton(key:RegisterPage.haveAccountButtonKey,onPressed:()=>context.router.push(const LoginRoute()),child:const Text('I already have an account'))
+]))))));
 }
